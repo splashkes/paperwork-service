@@ -1,0 +1,28 @@
+name: paperwork-service
+region: nyc
+
+services:
+- name: paperwork-api
+  github:
+    repo: splashkes/paperwork-service
+    branch: main
+    deploy_on_push: true
+  dockerfile_path: Dockerfile
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 8080
+  envs:
+  - key: ENVIRONMENT
+    value: production
+  - key: PORT
+    value: "8080"
+  - key: SUPABASE_URL
+    value: "https://db.artb.art"
+  - key: SUPABASE_KEY
+    value: "dummy-key-for-no-jwt"
+  - key: TEMPLATES_PATH
+    value: ./templates
+  - key: FONTS_PATH
+    value: ./templates/fonts
+  - key: BACKGROUNDS_PATH
+    value: ./templates/backgrounds
