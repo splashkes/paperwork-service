@@ -341,15 +341,25 @@ func (s *PaperworkPDFService) addRoundBiosContent(pdf *gofpdf.Fpdf, eventName st
 
 // addArtistPageContent adds individual artist page content
 func (s *PaperworkPDFService) addArtistPageContent(pdf *gofpdf.Fpdf, eventName string, eventEID string, artist models.EventArtist) {
-	// Constants for layout - match original exactly
+	// Constants for layout - swapped top and bottom sections
 	const (
 		pageWidth     = 279.4
 		pageHeight    = 215.9
-		qrX           = 20     // QR code on left side
-		qrY           = 45     // QR code Y position
-		qrSize        = 42     // QR code size
-		nameStartX    = 70     // Artist name starts at X=70
-		nameStartY    = 48     // Artist name Y position
+		midPoint      = 107.95  // Vertical midpoint of the page
+
+		// BOTTOM SECTION (was top) - QR and name info
+		// Same distance from midpoint as they were from top
+		qrX           = 20                // QR code on left side
+		qrY           = midPoint + 45     // 152.95 (was 45 from top)
+		qrSize        = 42                // QR code size
+		nameStartX    = 70                // Artist name starts at X=70
+		nameStartY    = midPoint + 48     // 155.95 (was 48 from top)
+		eventY        = midPoint + 69     // 176.95 (was 69 from top)
+		roundY        = midPoint + 77     // 184.95 (was 77 from top)
+
+		// TOP SECTION (was bottom) - Bio and event history
+		// Same distance from top as it was from midpoint (118 - 107.95 = 10.05)
+		topSectionY   = 10.05             // Start position for bio/history section
 	)
 
 	artistName := artist.DisplayName
@@ -360,6 +370,49 @@ func (s *PaperworkPDFService) addArtistPageContent(pdf *gofpdf.Fpdf, eventName s
 		artistName = fmt.Sprintf("%s %s", artist.FirstName, artist.LastName)
 	}
 
+	// TOP SECTION (was bottom): Bio and Event History - now at the top
+	// Two-column layout for what was the bottom half
+	columnWidth := float64(115) // Width of each column
+	columnGap := float64(10) // Gap between columns
+	leftColumnX := float64(20)
+	rightColumnX := leftColumnX + columnWidth + columnGap
+	rightColumnMaxWidth := float64(279.4 - rightColumnX - 20)
+
+	// LEFT COLUMN: Event history
+	// Display condensed event history
+	pdf.SetFont("AcuminMedium", "", 12) // Increased font size by 4pt (was 8pt)
+
+	lineHeight := float64(6) // Increased line height for larger font
+	maxEvents := 20 // Maximum events to display
+
+	for i, event := range artist.EventHistory {
+		if i >= maxEvents {
+			pdf.SetXY(leftColumnX, topSectionY + float64(i)*lineHeight)
+			pdf.Cell(columnWidth, lineHeight, fmt.Sprintf("... and %d more events", len(artist.EventHistory)-maxEvents))
+			break
+		}
+
+		pdf.SetXY(leftColumnX, topSectionY + float64(i)*lineHeight)
+		// Display event details in a condensed format with winner status
+		winnerText := ""
+		if event.IsWinner {
+			winnerText = " W" // Add W for winners
+		}
+		pdf.Cell(columnWidth, lineHeight, fmt.Sprintf("%s R%d-E%d%s", event.EventEID, event.Round, event.EaselNumber, winnerText))
+	}
+
+	// RIGHT COLUMN: Artist Bio
+	pdf.SetFont("AcuminMedium", "", 14) // Increased font size by 4pt (was 10pt)
+	pdf.SetXY(rightColumnX, topSectionY)
+
+	if artist.Bio != "" {
+		// Use MultiCell for automatic word wrapping
+		pdf.MultiCell(rightColumnMaxWidth, 6, cleanString(artist.Bio), "", "L", false)
+	} else {
+		pdf.Cell(rightColumnMaxWidth, 6, "No bio available")
+	}
+
+	// BOTTOM SECTION (was top): QR Code, Name, and Event Info - now at the bottom
 	// Generate QR code - prioritize Instagram, fallback to event page
 	var qrURL string
 	if artist.Instagram != "" {
@@ -386,12 +439,12 @@ func (s *PaperworkPDFService) addArtistPageContent(pdf *gofpdf.Fpdf, eventName s
 			imgName := fmt.Sprintf("qr_%d", artist.EntryID)
 			pdf.RegisterImageOptionsReader(imgName, gofpdf.ImageOptions{ImageType: "png"}, imgReader)
 
-			// Place QR code at exact original position
+			// Place QR code at new bottom position
 			pdf.ImageOptions(imgName, qrX, qrY, qrSize, qrSize, false, gofpdf.ImageOptions{ImageType: "png"}, 0, "")
 		}
 	}
 
-	// Artist name with dynamic font sizing - match original exactly
+	// Artist name with dynamic font sizing - now in bottom section
 	rightMargin := float64(20)
 	availableWidth := pageWidth - nameStartX - rightMargin
 
@@ -411,57 +464,14 @@ func (s *PaperworkPDFService) addArtistPageContent(pdf *gofpdf.Fpdf, eventName s
 	pdf.SetXY(nameStartX, nameStartY)
 	pdf.Cell(availableWidth, 10, cleanString(artistName))
 
-	// Event name above round/easel - match original positioning
+	// Event name above round/easel - now in bottom section
 	pdf.SetFont("AcuminMedium", "", 18)
-	pdf.SetXY(nameStartX, 69)
+	pdf.SetXY(nameStartX, eventY)
 	pdf.Cell(0, 6, cleanString(eventName))
 
 	pdf.SetFont("AcuminMedium", "", 21)
-	pdf.SetXY(nameStartX, 77)
+	pdf.SetXY(nameStartX, roundY)
 	pdf.Cell(0, 8, fmt.Sprintf("Round %d - Easel %d", artist.RoundNumber, artist.EaselNumber))
-
-	// Two-column layout for bottom half of page - match original exactly
-	startY := float64(118) // Start position for both columns
-	columnWidth := float64(115) // Width of each column
-	columnGap := float64(10) // Gap between columns
-	leftColumnX := float64(20)
-	rightColumnX := leftColumnX + columnWidth + columnGap
-	rightColumnMaxWidth := float64(279.4 - rightColumnX - 20)
-
-	// LEFT COLUMN: Event history
-	// Display condensed event history
-	pdf.SetFont("AcuminMedium", "", 12) // Increased font size by 4pt (was 8pt)
-	eventY := startY
-
-	lineHeight := float64(6) // Increased line height for larger font
-	maxEvents := 20 // Maximum events to display
-
-	for i, event := range artist.EventHistory {
-		if i >= maxEvents {
-			pdf.SetXY(leftColumnX, eventY + float64(i)*lineHeight)
-			pdf.Cell(columnWidth, lineHeight, fmt.Sprintf("... and %d more events", len(artist.EventHistory)-maxEvents))
-			break
-		}
-
-		pdf.SetXY(leftColumnX, eventY + float64(i)*lineHeight)
-		// Display event details in a condensed format with winner status
-		winnerText := ""
-		if event.IsWinner {
-			winnerText = " W" // Add W for winners
-		}
-		pdf.Cell(columnWidth, lineHeight, fmt.Sprintf("%s R%d-E%d%s", event.EventEID, event.Round, event.EaselNumber, winnerText))
-	}
-
-	// RIGHT COLUMN: Artist Bio
-	pdf.SetFont("AcuminMedium", "", 14) // Increased font size by 4pt (was 10pt)
-	pdf.SetXY(rightColumnX, startY)
-
-	if artist.Bio != "" {
-		// Use MultiCell for automatic word wrapping
-		pdf.MultiCell(rightColumnMaxWidth, 6, cleanString(artist.Bio), "", "L", false)
-	} else {
-		pdf.Cell(rightColumnMaxWidth, 6, "No bio available")
-	}
 }
 
 // cleanString removes problematic characters that can cause PDF issues
